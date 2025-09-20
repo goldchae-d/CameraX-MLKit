@@ -2,16 +2,23 @@ package com.example.camerax_mlkit
 
 import android.Manifest
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.ContentValues // [추가] 사진 파일 정보를 담기 위한 도구
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore // [추가] 안드로이드 미디어 저장소에 접근하기 위한 도구
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.ImageCapture // [추가] 사진 촬영 기능을 사용하기 위한 도구
+import androidx.camera.core.ImageCaptureException // [추가] 사진 촬영 중 오류를 처리하기 위한 도구
 import androidx.camera.mlkit.vision.MlKitAnalyzer
 import androidx.camera.view.CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED
 import androidx.camera.view.LifecycleCameraController
@@ -27,46 +34,37 @@ import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import java.text.SimpleDateFormat // [추가] 날짜와 시간을 원하는 형식으로 만들기 위한 도구
+import java.util.Locale // [추가] 국가별 날짜/시간 형식을 설정하기 위한 도구
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import com.example.camerax_mlkit.WifiTrigger
-import com.example.camerax_mlkit.TriggerGate
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.IntentFilter
-
 
 
 class MainActivity : AppCompatActivity() {
 
+    // --- 클래스 멤버 변수 선언 ---
     private lateinit var viewBinding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var barcodeScanner: BarcodeScanner
+    // [수정] cameraController를 클래스 멤버로 선언해야 다른 함수에서도 사용 가능합니다.
+    private lateinit var cameraController: LifecycleCameraController
 
-    // 지오펜스
     private lateinit var geofencingClient: GeofencingClient
 
-    // MainActivity 클래스 안에 추가
+    // (기존 코드는 그대로 유지)
     private val payPromptReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == TriggerGate.ACTION_PAY_PROMPT) {
-                // 필요하면 디버깅 로그
                 Log.d("MainActivity", "ACTION_PAY_PROMPT 수신 -> PaymentPromptActivity 실행")
-
-                // TriggerGate가 넘긴 정보들(선택)
                 val reason = intent.getStringExtra("reason")
                 val geo    = intent.getBooleanExtra("geo", false)
                 val beacon = intent.getBooleanExtra("beacon", false)
                 val wifi   = intent.getBooleanExtra("wifi", false)
-
-                // 바로 바텀시트 Activity 실행
                 startActivity(
                     Intent(this@MainActivity, PaymentPromptActivity::class.java).apply {
-                        // PaymentPromptActivity 쪽에서 쓰려면 extras 전달
                         putExtra(PaymentPromptActivity.EXTRA_TITLE,   "결제 안내")
                         putExtra(PaymentPromptActivity.EXTRA_MESSAGE, "안전한 QR 결제를 진행하세요.")
                         putExtra(PaymentPromptActivity.EXTRA_TRIGGER, reason ?: "prompt")
-                        // 필요 시 현재 상태도 같이
                         putExtra("geo", geo); putExtra("beacon", beacon); putExtra("wifi", wifi)
                     }
                 )
@@ -74,68 +72,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
     private val geofencePendingIntent: PendingIntent by lazy {
         PendingIntent.getBroadcast(
-            applicationContext,
-            0,
-            Intent(
-                applicationContext,
-                com.example.camerax_mlkit.geofence.GeofenceBroadcastReceiver::class.java
-            ),
+            applicationContext, 0,
+            Intent(applicationContext, com.example.camerax_mlkit.geofence.GeofenceBroadcastReceiver::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
 
-    // BLE 권한 런처
-    // BLE 권한 런처
     private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         val fine = result[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
-        val scan = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            (result[Manifest.permission.BLUETOOTH_SCAN] ?: false) else true
-        val connect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            (result[Manifest.permission.BLUETOOTH_CONNECT] ?: false) else true
-
+        val scan = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (result[Manifest.permission.BLUETOOTH_SCAN] ?: false) else true
+        val connect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (result[Manifest.permission.BLUETOOTH_CONNECT] ?: false) else true
         if (fine && scan && connect) {
             BeaconForegroundService.start(this)
         } else {
             Toast.makeText(this, "BLE 권한 거부(비콘 감지 비활성화)", Toast.LENGTH_LONG).show()
-            // 필요 시 설정 화면으로 이동
-            val intent = Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.fromParts("package", packageName, null)
-            )
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
             startActivity(intent)
         }
-
     }
 
-    private val notifPermLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* ignore */ }
+    private val notifPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignore */ }
 
-    private fun ensurePostNotificationsPermission() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            val p = Manifest.permission.POST_NOTIFICATIONS
-            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                notifPermLauncher.launch(p)
-            }
-        }
-    }
+    // --- 생명주기 함수 ---
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WifiTrigger.start(this)
         ensurePostNotificationsPermission()
+
+        // 뷰 바인딩: XML 레이아웃과 코드를 연결합니다.
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
 
-        // 카메라 권한 → 카메라 시작
-        if (allPermissionsGranted()) startCamera()
-        else ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+        // [수정] 촬영 버튼 클릭 리스너를 여기서 설정합니다. 화면이 생성될 때 딱 한 번만 설정하면 됩니다.
+        viewBinding.cameraCaptureButton.setOnClickListener { takePhoto() }
 
-        // 위치 권한 확보 후 지오펜스 등록
+        // 카메라 권한이 있으면 카메라를 시작하고, 없으면 요청합니다.
+        if (allPermissionsGranted()) {
+            startCamera()
+        } else {
+            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+        }
+
+        // 위치 권한이 있으면 지오펜스를 설정합니다.
         ensureLocationPermission {
             initGeofencing()
             addOrUpdateDuksungGeofence()
@@ -143,28 +125,41 @@ class MainActivity : AppCompatActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // BLE 권한 확인 후 포그라운드 서비스 시작
+        // 블루투스 권한이 있으면 비콘 서비스를 시작합니다.
         ensureBlePermissions()
     }
 
-    // BLE 권한 체크 → 이미 허용이면 바로 서비스 시작
-    private fun ensureBlePermissions() {
-        val needS = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        val required = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION).apply {
-            if (needS) { add(Manifest.permission.BLUETOOTH_SCAN); add(Manifest.permission.BLUETOOTH_CONNECT) }
-        }
-        val missing = required.any {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing) {
-            blePermissionLauncher.launch(required.toTypedArray())
-        } else {
-            BeaconForegroundService.start(this)
+
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(TriggerGate.ACTION_PAY_PROMPT)
+        ContextCompat.registerReceiver(this, payPromptReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        TriggerGate.onAppResumed(applicationContext)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            unregisterReceiver(payPromptReceiver)
+        } catch (_: IllegalArgumentException) { /* 이미 해제된 경우 대비 */ }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor.shutdown()
+        if(::barcodeScanner.isInitialized) {
+            barcodeScanner.close()
         }
     }
 
+    // --- 기능 함수 ---
     private fun startCamera() {
-        val cameraController = LifecycleCameraController(baseContext)
+        // [수정] 'val'을 제거하여 클래스 멤버 변수인 cameraController를 초기화합니다.
+        cameraController = LifecycleCameraController(baseContext)
         val previewView: PreviewView = viewBinding.viewFinder
 
         val options = BarcodeScannerOptions.Builder()
@@ -174,64 +169,105 @@ class MainActivity : AppCompatActivity() {
 
         cameraController.setImageAnalysisAnalyzer(
             ContextCompat.getMainExecutor(this),
-            MlKitAnalyzer(
-                listOf(barcodeScanner),
-                COORDINATE_SYSTEM_VIEW_REFERENCED,
-                ContextCompat.getMainExecutor(this)
-            ) { result: MlKitAnalyzer.Result? ->
+            MlKitAnalyzer(listOf(barcodeScanner), COORDINATE_SYSTEM_VIEW_REFERENCED, ContextCompat.getMainExecutor(this)) { result: MlKitAnalyzer.Result? ->
                 val barcodeResults = result?.getValue(barcodeScanner)
                 if (barcodeResults == null || barcodeResults.isEmpty() || barcodeResults.first() == null) {
                     previewView.overlay.clear()
-                    previewView.setOnTouchListener { v, _ ->
-                        v.performClick(); false
-                    }
+                    previewView.setOnTouchListener { v, _ -> v.performClick(); false }
                     return@MlKitAnalyzer
                 }
-
                 val qrCodeViewModel = QrCodeViewModel(barcodeResults[0])
                 val qrCodeDrawable = QrCodeDrawable(qrCodeViewModel)
-
                 previewView.setOnTouchListener(qrCodeViewModel.qrCodeTouchCallback)
                 previewView.overlay.clear()
                 previewView.overlay.add(qrCodeDrawable)
             }
         )
-
         cameraController.bindToLifecycle(this)
         previewView.controller = cameraController
     }
 
-    // 위치 권한 확보
-    private fun ensureLocationPermission(onGranted: () -> Unit = {}) {
-        val fineGranted = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val coarseGranted = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
+    private fun takePhoto() {
+        // 파일 이름을 위한 시간 형식 설정 (예: "2025-09-20-20-05-30-123.jpg")
+        val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis())
 
+        // 사진 파일에 대한 정보 설정 (이름, 타입 등)
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            // 최신 안드로이드 버전에서는 저장 경로를 지정해주는 것이 좋습니다.
+            if(Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
+            }
+        }
+
+        // 사진을 어디에, 어떻게 저장할지 최종 옵션을 만듭니다.
+        val outputOptions = ImageCapture.OutputFileOptions
+            .Builder(contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            .build()
+
+        // 설정된 옵션으로 사진을 찍습니다.
+        cameraController.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this), // 결과를 메인 스레드에서 처리
+            object : ImageCapture.OnImageSavedCallback {
+                // 사진 촬영 실패 시 호출됩니다.
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "사진 촬영 실패: ${exc.message}", exc)
+                    Toast.makeText(baseContext, "사진 촬영 실패", Toast.LENGTH_SHORT).show()
+                }
+
+                // 사진 저장이 성공적으로 완료되면 호출됩니다.
+                override fun onImageSaved(output: ImageCapture.OutputFileResults){
+                    val msg = "사진 저장 성공: ${output.savedUri}"
+                    Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
+                    Log.d(TAG, msg)
+                }
+            }
+        )
+    }
+
+
+    // --- 권한 관련 함수들 (기존 코드와 동일) ---
+    private fun ensureBlePermissions() {
+        val needS = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val required = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION).apply {
+            if (needS) { add(Manifest.permission.BLUETOOTH_SCAN); add(Manifest.permission.BLUETOOTH_CONNECT) }
+        }
+        val missing = required.any { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing) {
+            blePermissionLauncher.launch(required.toTypedArray())
+        } else {
+            BeaconForegroundService.start(this)
+        }
+    }
+
+
+    private fun ensurePostNotificationsPermission() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val p = Manifest.permission.POST_NOTIFICATIONS
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                notifPermLauncher.launch(p)
+            }
+        }
+    }
+
+    private fun ensureLocationPermission(onGranted: () -> Unit = {}) {
+        val fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fineGranted || !coarseGranted) {
             ActivityCompat.requestPermissions(this, LOCATION_PERMISSIONS, REQUEST_CODE_LOCATION)
             return
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val bgGranted = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-
+            val bgGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (!bgGranted) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     Toast.makeText(this, "백그라운드 위치 허용이 필요하면 설정에서 ‘항상 허용’을 선택하세요.", Toast.LENGTH_LONG).show()
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.fromParts("package", packageName, null))
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
                     startActivity(intent)
                 } else {
-                    ActivityCompat.requestPermissions(
-                        this,
-                        arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
-                        REQUEST_CODE_BACKGROUND_LOCATION
-                    )
+                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_CODE_BACKGROUND_LOCATION)
                     return
                 }
             }
@@ -247,31 +283,20 @@ class MainActivity : AppCompatActivity() {
         val geofence = Geofence.Builder()
             .setRequestId(DUKSUNG_GEOFENCE_ID)
             .setCircularRegion(DUKSUNG_LAT, DUKSUNG_LNG, DUKSUNG_RADIUS_METERS)
-            .setTransitionTypes(
-                Geofence.GEOFENCE_TRANSITION_ENTER or
-                        Geofence.GEOFENCE_TRANSITION_EXIT or
-                        Geofence.GEOFENCE_TRANSITION_DWELL
-            )
+            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT or Geofence.GEOFENCE_TRANSITION_DWELL)
             .setLoiteringDelay(5_000)
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .build()
-
         val request = GeofencingRequest.Builder()
-            .setInitialTrigger(
-                GeofencingRequest.INITIAL_TRIGGER_ENTER or GeofencingRequest.INITIAL_TRIGGER_DWELL
-            )
+            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER or GeofencingRequest.INITIAL_TRIGGER_DWELL)
             .addGeofence(geofence)
             .build()
-
         val fineOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarseOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fineOk || !coarseOk) return
-
         geofencingClient.removeGeofences(listOf(DUKSUNG_GEOFENCE_ID)).addOnCompleteListener {
             geofencingClient.addGeofences(request, geofencePendingIntent)
-                .addOnSuccessListener {
-                    Toast.makeText(this, "지오펜스 등록 완료(덕성여대)", Toast.LENGTH_SHORT).show()
-                }
+                .addOnSuccessListener { Toast.makeText(this, "지오펜스 등록 완료(덕성여대)", Toast.LENGTH_SHORT).show() }
                 .addOnFailureListener { e ->
                     Log.e(TAG, "지오펜스 등록 실패", e)
                     if (e is SecurityException) Log.e(TAG, "권한 문제: 위치/백그라운드 위치 확인 필요")
@@ -284,15 +309,7 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        cameraExecutor.shutdown()
-        barcodeScanner.close()
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<String>, grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
             REQUEST_CODE_PERMISSIONS -> {
@@ -311,51 +328,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        TriggerGate.onAppResumed(applicationContext)  // ← 이 한 줄!
-    }
 
-    override fun onStart() {
-        super.onStart()
-        val filter = IntentFilter(TriggerGate.ACTION_PAY_PROMPT)
-
-        // API 21~34 전체에서 안전하게 동작
-        ContextCompat.registerReceiver(
-            /* context = */ this,
-            /* receiver = */ payPromptReceiver,
-            /* filter   = */ filter,
-            /* flags    = */ ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-    }
-
-
-
-    override fun onStop() {
-        super.onStop()
-        // Activity가 화면에서 사라질 때 해제 (메모리 릭/중복 방지)
-        try {
-            unregisterReceiver(payPromptReceiver)
-        } catch (_: IllegalArgumentException) { /* 이미 해제된 경우 대비 */ }
-    }
-
-
+    // --- 상수 선언 ---
     companion object {
         private const val TAG = "CameraX-MLKit"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private const val REQUEST_CODE_LOCATION = 11
         private const val REQUEST_CODE_BACKGROUND_LOCATION = 12
 
-        private val LOCATION_PERMISSIONS = arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
+        private val LOCATION_PERMISSIONS = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        private val REQUIRED_PERMISSIONS = mutableListOf(Manifest.permission.CAMERA).toTypedArray()
 
-        private val REQUIRED_PERMISSIONS = mutableListOf(
-            Manifest.permission.CAMERA
-        ).toTypedArray()
-
-        // 덕성여대 좌표/반경
         private const val DUKSUNG_LAT = 37.65326
         private const val DUKSUNG_LNG = 127.0164
         private const val DUKSUNG_RADIUS_METERS = 200f
