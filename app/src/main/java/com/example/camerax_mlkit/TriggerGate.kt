@@ -34,6 +34,16 @@ object TriggerGate {
     private const val COOLDOWN_MS = 3_000L             // 연속 표시 방지
     private const val BEACON_NEAR_TIMEOUT_MS = 15_000L // 근접 유지 시간
 
+    /**
+     * 마지막 트리거 후 쿨다운이 지났는지 확인.
+     * 외부(MainActivity)에서도 호출 가능해야 하므로 public으로 둡니다.
+     */
+    @Synchronized
+    fun isTriggered(): Boolean { // <--- 'private'을 제거하여 외부 접근 허용
+        val now = SystemClock.elapsedRealtime()
+        return (now - lastShownAt <= COOLDOWN_MS)
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var beaconTimeout: Runnable? = null
 

@@ -157,8 +157,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --- 기능 함수 ---
+    // MainActivity.kt 파일 내부
     private fun startCamera() {
-        // [수정] 'val'을 제거하여 클래스 멤버 변수인 cameraController를 초기화합니다.
         cameraController = LifecycleCameraController(baseContext)
         val previewView: PreviewView = viewBinding.viewFinder
 
@@ -169,22 +169,38 @@ class MainActivity : AppCompatActivity() {
 
         cameraController.setImageAnalysisAnalyzer(
             ContextCompat.getMainExecutor(this),
-            MlKitAnalyzer(listOf(barcodeScanner), COORDINATE_SYSTEM_VIEW_REFERENCED, ContextCompat.getMainExecutor(this)) { result: MlKitAnalyzer.Result? ->
+            MlKitAnalyzer(
+                listOf(barcodeScanner),
+                COORDINATE_SYSTEM_VIEW_REFERENCED,
+                ContextCompat.getMainExecutor(this)
+            ) { result: MlKitAnalyzer.Result? ->
                 val barcodeResults = result?.getValue(barcodeScanner)
                 if (barcodeResults == null || barcodeResults.isEmpty() || barcodeResults.first() == null) {
                     previewView.overlay.clear()
-                    previewView.setOnTouchListener { v, _ -> v.performClick(); false }
                     return@MlKitAnalyzer
                 }
+
+                // 1. TriggerGate를 확인하여 반복 실행을 방지합니다.
+                if (TriggerGate.isTriggered()) {
+                    return@MlKitAnalyzer
+                }
+
+                // 2. QrCodeViewModel을 생성하여 QR 코드 정보를 가져옵니다.
                 val qrCodeViewModel = QrCodeViewModel(barcodeResults[0])
-                val qrCodeDrawable = QrCodeDrawable(qrCodeViewModel)
-                previewView.setOnTouchListener(qrCodeViewModel.qrCodeTouchCallback)
-                previewView.overlay.clear()
-                previewView.overlay.add(qrCodeDrawable)
+
+                // 3. QR 코드 내용으로 결제 다이얼로그를 즉시 실행합니다.
+                startPaymentPrompt(qrCodeViewModel.qrContent)
             }
         )
         cameraController.bindToLifecycle(this)
         previewView.controller = cameraController
+    }
+
+    private fun startPaymentPrompt(qrCode: String) {
+        val intent = Intent(this, PaymentPromptActivity::class.java).apply {
+            putExtra(PaymentPromptActivity.EXTRA_QR_CODE, qrCode)
+        }
+        startActivity(intent)
     }
 
     private fun takePhoto() {

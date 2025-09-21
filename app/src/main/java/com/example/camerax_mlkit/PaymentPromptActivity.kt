@@ -20,6 +20,7 @@ import org.json.JSONObject
 class PaymentPromptActivity : AppCompatActivity() {
 
     companion object {
+        const val EXTRA_QR_CODE = "extra_qr_code"
         const val EXTRA_TITLE   = "extra_title"
         const val EXTRA_MESSAGE = "extra_message"
         const val EXTRA_TRIGGER = "extra_trigger"

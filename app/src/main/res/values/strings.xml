@@ -15,7 +15,7 @@
   -->
 
 <resources>
-    <string name="app_name">Ctral+Frag</string>
+    <string name="app_name">Ctrl+Frag</string>
     <string name="title_account_qr">계좌 QR</string>
     <string name="desc_account_qr">계좌 QR 이미지</string>
     <string name="hint_scan_in_bank_app">은행앱에서 스캔하세요</string>
