@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.camerax_mlkit">
+
+    <queries>
+        <!-- 카카오/네이버 앱 패키지 탐색 허용 -->
+        <package android:name="com.kakaopay.app" />
+        <package android:name="com.kakao.talk" />
+        <package android:name="com.nhn.android.search" />
+
+        <!-- 스킴 인텐트(카카오/네이버) 허용 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="kakaotalk" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="naversearchapp" />
+        </intent>
+    </queries>
+
+
+
+    <!-- 시연용 HTTP를 쓴다면 (가급적 HTTPS 권장) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Features -->
+    <uses-feature android:name="android.hardware.camera.any" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- 위치(지오펜스/SSID/BSSID 조회용) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+
+    <!-- BLE (Android 12+ 권한) + 하위 호환 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />  --> <!-- 광고 쓸 때만 -->
+
+    <!-- 알림 (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Foreground Service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- 네트워크/와이파이 상태 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+
+    <!-- (선택) Android 13+ Wi-Fi 스캔 권한: 연결된 SSID 확인만으론 보통 불필요하지만, 스캔을 직접 할 때 필요 -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:required="false"/>
+
+
+    <application
+        android:name=".App"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.CameraxMLKit">
+
+        <!-- 런처 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 결제 선택 팝업 / QR 화면 -->
+        <activity
+            android:name=".PaymentPromptActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.MaterialComponents.DayNight.Dialog.Alert"
+            tools:targetApi="o_mr1" />
+
+
+        <activity
+            android:name=".AccountQrActivity"
+            android:exported="false" />
+
+        <!-- 지오펜스 브로드캐스트 -->
+        <receiver
+            android:name=".geofence.GeofenceBroadcastReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".BeaconTriggerReceiver"
+            android:exported="false" />
+
+
+
+        <!-- 비콘 스캔 포그라운드 서비스 (백그라운드 대응) -->
+        <!-- AndroidManifest.xml - <application> 안 -->
+        <service
+            android:name=".BeaconForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+
+
+
+
+    </application>
+
+</manifest>
