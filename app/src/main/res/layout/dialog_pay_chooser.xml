@@ -54,12 +54,13 @@
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="12dp">
+
                     <ImageView
                         android:layout_width="28dp"
                         android:layout_height="28dp"
-                        android:src="@drawable/ic_qr_24"
-                        app:tint="@color/tile_text"
+                        android:src="@drawable/ic_payment_account_qr"
                         android:contentDescription="@string/label_account_qr"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -84,12 +85,13 @@
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="12dp">
+
                     <ImageView
                         android:layout_width="28dp"
                         android:layout_height="28dp"
-                        android:src="@drawable/ic_scan_24"
-                        app:tint="@color/tile_text"
+                        android:src="@drawable/ic_payment_inapp_scan"
                         android:contentDescription="@string/label_inapp_scan"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -114,12 +116,13 @@
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="12dp">
+
                     <ImageView
                         android:layout_width="28dp"
                         android:layout_height="28dp"
-                        android:src="@drawable/ic_kakao_24"
-                        app:tint="@color/kakao_black"
+                        android:src="@drawable/ic_payment_kakao"
                         android:contentDescription="@string/label_kakaopay"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -144,12 +147,13 @@
                     android:gravity="center"
                     android:orientation="vertical"
                     android:padding="12dp">
+
                     <ImageView
                         android:layout_width="28dp"
                         android:layout_height="28dp"
-                        android:src="@drawable/ic_naver_24"
-                        app:tint="@color/white"
+                        android:src="@drawable/ic_payment_naver"
                         android:contentDescription="@string/label_naverpay"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
